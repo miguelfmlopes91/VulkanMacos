@@ -16,6 +16,7 @@
 #include <vector>
 #include <cstring>
 #include <optional>
+#include <set>
 
 
 const int WIDTH = 800;
@@ -26,9 +27,10 @@ const std::vector<const char*> validationLayers = {
 };
 
 struct QueueFamilyIndices {
-    std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> graphicsFamily;;
+    std::optional<uint32_t> presentFamily;
     bool isComplete() {
-        return graphicsFamily.has_value();
+        return graphicsFamily.has_value() && presentFamily.has_value();
     }
  };
 
@@ -62,6 +64,17 @@ public:
         mainLoop();
         cleanup();
     }
+        
+private:
+        GLFWwindow* window;
+    
+        VkInstance instance;
+        VkDebugUtilsMessengerEXT debugMessenger;
+        VkSurfaceKHR surface;
+        VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+        VkDevice device;//logical device
+        VkQueue graphicsQueue;
+        VkQueue presentQueue;
 
 private:
     void initWindow() {
@@ -81,10 +94,64 @@ private:
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
     }
     
+    void createInstance() {
+        if (enableValidationLayers && !checkValidationLayerSupport()) {
+            throw std::runtime_error("validation layers requested, but not available!");
+        }
+        
+        //load global extensions
+        auto extensions = getRequiredExtensions();
+        
+        ///-------Vulkan utilizes strcuts instead of parameters in functions, so we need to fill some of those so we can have something to work with--------
+        //non-obligatory struct, provides some usefull information for optimization
+        VkApplicationInfo appInfo = {};
+        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;//Vulkan structures require that you specify the strutc type (sType)
+        appInfo.pApplicationName = "Hello Triangle";
+        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+        appInfo.pEngineName = "No Engine";
+        appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+        appInfo.apiVersion = VK_API_VERSION_1_0;
+        
+        //obligatory struct, tells the global(needed in the entire code) extensions needed and the validation layers
+        VkInstanceCreateInfo createInfo = {};
+        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        createInfo.pApplicationInfo = &appInfo;
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+        createInfo.ppEnabledExtensionNames = extensions.data();
+        
+        VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+            
+            populateDebugMessengerCreateInfo(debugCreateInfo);
+            createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;
+        } else {
+            createInfo.enabledLayerCount = 0;
+            createInfo.pNext = nullptr;
+        }
+                
+        /* Info vkCreateInstance:
+         - Pointer to struct with creation info
+         - Pointer to custom allocator callbacks, always nullptr in this tutorial
+         - Pointer to the variable that stores the handle to the new object
+         */
+        VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
+
+        if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
+            std::cout << "cannot find a compatible Vulkan ICD\n";
+            throw std::runtime_error("failed to create instance!");
+        } else  if (result != VK_SUCCESS) {
+            std::cout << "Failed with error: " << result << std::endl;
+            throw std::runtime_error("failed to create instance!");
+        }
+    }
+
     void setupDebugMessenger() {
         if (!enableValidationLayers) return;
         
@@ -93,6 +160,12 @@ private:
         
         if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
             throw std::runtime_error("failed to set up debug messenger!");
+        }
+    }
+    
+    void createSurface() {
+        if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create window surface!");
         }
     }
 
@@ -123,20 +196,27 @@ private:
     void createLogicalDevice() {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
-        VkDeviceQueueCreateInfo queueCreateInfo = {};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-        queueCreateInfo.queueCount = 1;
-        
+       std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+       std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+
         float queuePriority = 1.0f;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
+        for (uint32_t queueFamily : uniqueQueueFamilies) {
+            VkDeviceQueueCreateInfo queueCreateInfo = {};
+            queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueCreateInfo.queueFamilyIndex = queueFamily;
+            queueCreateInfo.queueCount = 1;
+            queueCreateInfo.pQueuePriorities = &queuePriority;
+            
+            queueCreateInfos.push_back(queueCreateInfo);
+        }
+        
         
         VkPhysicalDeviceFeatures deviceFeatures = {};
 
         VkDeviceCreateInfo createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        createInfo.pQueueCreateInfos = &queueCreateInfo;
-        createInfo.queueCreateInfoCount = 1;
+        createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+        createInfo.pQueueCreateInfos = queueCreateInfos.data();
         createInfo.pEnabledFeatures = &deviceFeatures;
         createInfo.enabledExtensionCount = 0;
         if (enableValidationLayers) {
@@ -149,8 +229,9 @@ private:
         if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
             throw std::runtime_error("failed to create logical device!");
         }
-        VkQueue graphicsQueue;
+        
         vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+        vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
     }
     
     bool isDeviceSuitable(VkPhysicalDevice device) {
@@ -178,64 +259,12 @@ private:
         if (enableValidationLayers) {
             DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
         }
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr);
         glfwDestroyWindow(window);
         glfwTerminate();
     }
     
-    void createInstance() {
-        if (enableValidationLayers && !checkValidationLayerSupport()) {
-            throw std::runtime_error("validation layers requested, but not available!");
-        }
-        
-        //load global extensions
-        auto extensions = getRequiredExtensions();
-        
-        ///-------Vulkan utilizes strcuts instead of parameters in functions, so we need to fill some of those so we can have something to work with--------
-        //non-obligatory struct, provides some usefull information for optimization
-        VkApplicationInfo appInfo = {};
-        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;//Vulkan structures require that you specify the strutc type (sType)
-        appInfo.pApplicationName = "Hello Triangle";
-        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.pEngineName = "No Engine";
-        appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-        appInfo.apiVersion = VK_API_VERSION_1_0;
-        
-        //obligatory struct, tells the global(needed in the entire code) extensions needed and the validation layers
-        VkInstanceCreateInfo createInfo = {};
-        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        createInfo.pApplicationInfo = &appInfo;
-        createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-        createInfo.ppEnabledExtensionNames = extensions.data();
-        
-        VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;// placed outside the if statement to ensure that it is not destroyed before the vkCreateInstance call
-
-        if (enableValidationLayers) {
-            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-            createInfo.ppEnabledLayerNames = validationLayers.data();
-            
-            populateDebugMessengerCreateInfo(debugCreateInfo);
-            createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;
-        } else {
-            createInfo.enabledLayerCount = 0;
-            createInfo.pNext = nullptr;
-        }
-                
-        /* Info vkCreateInstance:
-         - Pointer to struct with creation info
-         - Pointer to custom allocator callbacks, always nullptr in this tutorial
-         - Pointer to the variable that stores the handle to the new object
-         */
-        VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
-
-        if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
-            std::cout << "cannot find a compatible Vulkan ICD\n";
-            throw std::runtime_error("failed to create instance!");
-        } else  if (result != VK_SUCCESS) {
-            std::cout << "Failed with error: " << result << std::endl;
-            throw std::runtime_error("failed to create instance!");
-        }
-    }
     
     bool checkValidationLayerSupport() {
         uint32_t layerCount;
@@ -287,6 +316,21 @@ private:
         if (enableValidationLayers) {
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         }
+        /* TO COMPILE COCOA WINDOW SURFACE
+         #define GLFW_EXPOSE_NATIVE_COCOA
+         #include <GLFW/glfw3native.h>
+
+         #define VK_USE_PLATFORM_MACOS_MVK
+         #include <vulkan/vulkan.h>
+
+         #include "ObjC-interface.h"
+         ....
+         // Adding KHR surface extension and MVK_MACOS_SURFACE_EXTENSION
+         if (enableValidationLayers) {
+         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+         extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+         extensions.push_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
+         }*/
         return extensions;
     }
     
@@ -328,22 +372,20 @@ private:
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                 indices.graphicsFamily = i;
             }
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+            if (presentSupport) {
+                indices.presentFamily = i;
+            }
             if (indices.isComplete()) {
                 break;
             }
+
             i++;
         }
         
         return indices;
     }
-    
-private:
-    GLFWwindow* window;
-    VkInstance instance;
-    VkDebugUtilsMessengerEXT debugMessenger;
-    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-    VkDevice device;//logical device
-    VkQueue graphicsQueue;
 };
 
 int main() {
