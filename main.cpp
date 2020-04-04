@@ -14,6 +14,9 @@
 #include <functional>
 #include <cstdlib>
 
+const int WIDTH = 800;
+const int HEIGHT = 600;
+
 class HelloTriangleApplication {
 public:
     void run() {
@@ -28,8 +31,7 @@ private:
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-        window = glfwCreateWindow(800, 600, "Vulkan", nullptr, nullptr);
-
+        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
     
     void initVulkan() {
@@ -37,12 +39,18 @@ private:
     }
 
     void mainLoop() {
-
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+        }
     }
 
     void cleanup() {
+        glfwDestroyWindow(window);
 
+        glfwTerminate();
     }
+private:
+    GLFWwindow* window;
 };
 
 int main() {
