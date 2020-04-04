@@ -72,6 +72,7 @@ private:
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        pickPhysicalDevice();
     }
     
     void setupDebugMessenger() {
@@ -85,6 +86,43 @@ private:
         }
     }
 
+    void pickPhysicalDevice() {
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        std::cout << "Number of available devices: " << deviceCount<<std::endl;
+
+        if (deviceCount == 0) {
+            throw std::runtime_error("failed to find GPUs with Vulkan support!");
+        }
+        
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+        
+        for (const auto& device : devices) {
+            if (isDeviceSuitable(device)) {
+                physicalDevice = device;
+                break;
+            }
+        }
+
+        if (physicalDevice == VK_NULL_HANDLE) {
+            throw std::runtime_error("failed to find a suitable GPU!");
+        }
+    }
+    
+    bool isDeviceSuitable(VkPhysicalDevice device) {
+        //TODO: give each device a score and pick the highest one.That way you could favor a dedicated graphics card by giving it a higher score, but fall back to an integrated GPU if that's the only available one.
+//        VkPhysicalDeviceProperties deviceProperties;
+//        VkPhysicalDeviceFeatures deviceFeatures;
+//        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+//        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+//
+//        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+//               deviceFeatures.geometryShader;
+        
+        return true;
+    }
+    
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
@@ -158,15 +196,14 @@ private:
     bool checkValidationLayerSupport() {
         uint32_t layerCount;
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-        std::cout <<"Number of layers fround supported: "<< layerCount << std::endl;
+        //std::cout <<"Number of layers fround supported: "<< layerCount << std::endl;
 
         std::vector<VkLayerProperties> availableLayers(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-        std::cout << "available layers:" << std::endl;
-        for (const char* layerName : validationLayers) {
-            std::cout << "\t" << layerName << std::endl;
-        }
-
+//        std::cout << "available layers:" << std::endl;
+//        for (const char* layerName : validationLayers) {
+//            std::cout << "\t" << layerName << std::endl;
+//        }
         for (const char* layerName : validationLayers) {
             bool layerFound = false;
 
@@ -237,6 +274,7 @@ private:
     GLFWwindow* window;
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 };
 
 int main() {
