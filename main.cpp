@@ -25,6 +25,10 @@ const int HEIGHT = 600;
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
+///list of required device extensions
+const std::vector<const char*> deviceExtensions = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;;
@@ -235,17 +239,20 @@ private:
     }
     
     bool isDeviceSuitable(VkPhysicalDevice device) {
+        /*
         //TODO: give each device a score and pick the highest one.That way you could favor a dedicated graphics card by giving it a higher score, but fall back to an integrated GPU if that's the only available one.
-//        VkPhysicalDeviceProperties deviceProperties;
-//        VkPhysicalDeviceFeatures deviceFeatures;
-//        vkGetPhysicalDeviceProperties(device, &deviceProperties);
-//        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-//
-//        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-//               deviceFeatures.geometryShader;
-        
+        VkPhysicalDeviceProperties deviceProperties;
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+               deviceFeatures.geometryShader;
+        */
         QueueFamilyIndices indices = findQueueFamilies(device);
-        return indices.isComplete();
+        bool extensionsSupported = checkDeviceExtensionSupport(device);
+
+        return indices.isComplete() && extensionsSupported;
     }
     
     void mainLoop() {
@@ -386,6 +393,21 @@ private:
         
         return indices;
     }
+    
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+        uint32_t extensionCount;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+
+        std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+
+        std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+
+        for (const auto& extension : availableExtensions) {
+            requiredExtensions.erase(extension.extensionName);
+        }
+
+        return requiredExtensions.empty();    }
 };
 
 int main() {
