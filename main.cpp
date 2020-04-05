@@ -120,6 +120,9 @@ private:
         VkRenderPass renderPass;
         VkPipelineLayout pipelineLayout;///for storing uniform variables for shaders
         VkPipeline graphicsPipeline;
+        VkCommandPool commandPool;
+        std::vector<VkCommandBuffer> commandBuffers;
+
 private:
     void initWindow() {
         glfwInit();
@@ -145,6 +148,8 @@ private:
         createRenderPass();
         createGraphicsPipeline();
         createFramebuffers();
+        createCommandPool();
+        createCommandBuffers();
     }
     
     void createInstance() {
@@ -598,6 +603,89 @@ private:
             }
         }
     }
+    void createCommandPool() {
+    ///We have to create a command pool before we can create command buffers.
+    ///Command pools manage the memory that is used to store the buffers and command buffers are allocated from them.
+        QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+
+        VkCommandPoolCreateInfo poolInfo = {};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();///record commands for drawing, choose the graphics queue family.
+        poolInfo.flags = 0; // Optional
+        
+        if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create command pool!");
+        }
+    }
+    void createCommandBuffers() {
+        ///Commands in Vulkan, like drawing operations and memory transfers, are not executed directly using function calls.
+        ///You have to record all of the operations you want to perform in command buffer objects.
+        ///The advantage of this is that all of the hard work of setting up the drawing commands can be done in advance and in multiple threads.
+        ///After that, you just have to tell Vulkan to execute the commands in the main loop.
+        commandBuffers.resize(swapChainFramebuffers.size());
+        
+        VkCommandBufferAllocateInfo allocInfo = {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = commandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;///Can be submitted to a queue for execution, but cannot be called from other command buffers.
+        allocInfo.commandBufferCount = (uint32_t) commandBuffers.size();
+
+        if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate command buffers!");
+        }
+        
+        //Starting command buffer recording
+        for (size_t i = 0; i < commandBuffers.size(); i++) {
+            VkCommandBufferBeginInfo beginInfo = {};
+            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            beginInfo.flags = 0; // Optional
+            beginInfo.pInheritanceInfo = nullptr; // Optional
+
+            if (vkBeginCommandBuffer(commandBuffers[i], &beginInfo) != VK_SUCCESS) {
+                throw std::runtime_error("failed to begin recording command buffer!");
+            }
+            //Starting a render pass
+            ///Drawing starts by beginning the render pass with vkCmdBeginRenderPass.
+            ///The render pass is configured using some parameters in a VkRenderPassBeginInfo struct.
+            VkRenderPassBeginInfo renderPassInfo = {};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = renderPass;
+            renderPassInfo.framebuffer = swapChainFramebuffers[i];
+            renderPassInfo.renderArea.offset = {0, 0};
+            renderPassInfo.renderArea.extent = swapChainExtent;
+            
+            //Clear Color
+            VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearColor;
+            
+            //The render pass can now begin
+            vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+            //We can now bind the graphics pipeline
+            ///The second parameter specifies if the pipeline object is a graphics or compute pipeline
+            vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+            
+            //The ACTUAL DRAW FUNC
+            /*
+             - vertexCount: Even though we don't have a vertex buffer, we technically still have 3 vertices to draw.
+             - instanceCount: Used for instanced rendering, use 1 if you're not doing that.
+             - firstVertex: Used as an offset into the vertex buffer, defines the lowest value of gl_VertexIndex.
+             - firstInstance: Used as an offset for instanced rendering, defines the lowest value of gl_InstanceIndex.
+             */
+            vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+
+            //The render pass can now be ended:
+            vkCmdEndRenderPass(commandBuffers[i]);
+
+            //Now check if we0re able to finish recording the command buffer correctly
+            if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
+                throw std::runtime_error("failed to record command buffer!");
+            }
+        }
+        
+
+    }
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
@@ -605,6 +693,7 @@ private:
         }
     }
     void cleanup() {
+        vkDestroyCommandPool(device, commandPool, nullptr);
         for (auto framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
         }
