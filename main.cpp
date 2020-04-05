@@ -122,6 +122,8 @@ private:
         VkPipeline graphicsPipeline;
         VkCommandPool commandPool;
         std::vector<VkCommandBuffer> commandBuffers;
+        VkSemaphore imageAvailableSemaphore;
+        VkSemaphore renderFinishedSemaphore;
 
 private:
     void initWindow() {
@@ -150,8 +152,8 @@ private:
         createFramebuffers();
         createCommandPool();
         createCommandBuffers();
+        createSemaphores();
     }
-    
     void createInstance() {
         if (enableValidationLayers && !checkValidationLayerSupport()) {
             throw std::runtime_error("validation layers requested, but not available!");
@@ -384,6 +386,7 @@ private:
         //Subpasses and attachment references
         ///A single render pass can consist of multiple subpasses. Subpasses are subsequent rendering operations that depend on the contents of framebuffers in previous passes
         ///Every subpass references one or more of the attachments. (attachment references)
+        // subpasses in a render pass automatically take care of image layout transitions
         VkAttachmentReference colorAttachmentRef = {};
         colorAttachmentRef.attachment = 0;///specifies which attachment to reference by its index in the attachment descriptions array (The index of the attachment in this array is directly referenced from the fragment shader with the layout(location = 0) out vec4 outColor directive!)
         colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -404,6 +407,20 @@ private:
         if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
             throw std::runtime_error("failed to create render pass!");
         }
+        
+        //Subpass dependencies
+        VkSubpassDependency dependency = {};
+        dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+        dependency.dstSubpass = 0;
+        ///We need to wait for the swap chain to finish reading from the image before we can access it.
+        ///This can be accomplished by waiting on the color attachment output stage itself.
+        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.srcAccessMask = 0;
+        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        
+        renderPassInfo.dependencyCount = 1;
+        renderPassInfo.pDependencies = &dependency;
     }
     void createGraphicsPipeline() {
         auto vertShaderCode = readFile("Resources/shaders/vert.spv");
@@ -686,13 +703,82 @@ private:
         
 
     }
+    void createSemaphores(){
+        //Synchronization
+        ///There are two ways of synchronizing swap chain events: fences and semaphores.
+        VkSemaphoreCreateInfo semaphoreInfo = {};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create semaphores!");
+        }
+    }
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            drawFrame();
         }
     }
+    void drawFrame() {
+        /*The drawFrame function will perform the following operations:
+            - Acquire an image from the swap chain
+            - Execute the command buffer with that image as attachment in the framebuffer
+            - Return the image to the swap chain for presentation
+         */
+        
+        //Acquire an image from the swap chain
+        ///using semaphores to specify synchronization
+        uint32_t imageIndex;
+        vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+        
+        //Submitting the command buffer
+        ///Queue submission and synchronization is configured through parameters in the VkSubmitInfo structure.
+        VkSubmitInfo submitInfo = {};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        ///We want to wait with writing colors to the image until it's available
+        VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSemaphores;
+        submitInfo.pWaitDstStageMask = waitStages;
+        ///specify which command buffers to actually submit for execution
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+        ///specify which semaphores to signal once the command buffer(s) have finished execution
+        VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSemaphores;
+        
+        ///We can now submit the command buffer to the graphics queue using vkQueueSubmit.
+        ///The function takes an array of VkSubmitInfo structures as argument for efficiency when the workload is much larger.
+        if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
+            throw std::runtime_error("failed to submit draw command buffer!");
+        }
+        
+        //Presentation
+        ///The last step of drawing a frame is submitting the result back to the swap chain to have it eventually show up on the screen
+        VkPresentInfoKHR presentInfo = {};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSemaphores;
+        
+        VkSwapchainKHR swapChains[] = {swapChain};
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapChains;
+        presentInfo.pImageIndices = &imageIndex;
+        presentInfo.pResults = nullptr; /// Optional: allows you to specify an array of VkResult values to check for every individual swap chain if presentation was successful.
+
+        ///submits the request to present an image to the swap chain.
+        vkQueuePresentKHR(presentQueue, &presentInfo);
+
+
+    }
+    
     void cleanup() {
+        vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+        vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
         vkDestroyCommandPool(device, commandPool, nullptr);
         for (auto framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
