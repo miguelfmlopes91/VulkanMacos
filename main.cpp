@@ -719,6 +719,7 @@ private:
             glfwPollEvents();
             drawFrame();
         }
+        vkDeviceWaitIdle(device);
     }
     void drawFrame() {
         /*The drawFrame function will perform the following operations:
@@ -773,9 +774,8 @@ private:
         ///submits the request to present an image to the swap chain.
         vkQueuePresentKHR(presentQueue, &presentInfo);
 
-
+        vkQueueWaitIdle(presentQueue);
     }
-    
     void cleanup() {
         vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
         vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
