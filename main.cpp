@@ -116,8 +116,9 @@ private:
         std::vector<VkImageView> swapChainImageViews;
         VkFormat swapChainImageFormat;
         VkExtent2D swapChainExtent;
+        VkRenderPass renderPass;
         VkPipelineLayout pipelineLayout;///for storing uniform variables for shaders
-
+        VkPipeline graphicsPipeline;
 private:
     void initWindow() {
         glfwInit();
@@ -132,7 +133,6 @@ private:
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
-    
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
@@ -141,6 +141,7 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createRenderPass();
         createGraphicsPipeline();
     }
     
@@ -360,6 +361,43 @@ private:
         }
 
     }
+    void createRenderPass() {
+        VkAttachmentDescription colorAttachment = {};
+        ///The format of the color attachment should match the format of the swap chain images, and we're not doing anything with multisampling yet, so we'll stick to 1 sample.
+        colorAttachment.format = swapChainImageFormat;
+        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        ///loadOp and storeOp determine what to do with the data in the attachment before rendering and after rendering
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;///Clear the values to a constant at the start
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;///Rendered contents will be stored in memory and can be read later
+        colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;///specifies which layout the image will have before the render pass begins
+        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;///: Images to be presented in the swap chain
+        
+        //Subpasses and attachment references
+        ///A single render pass can consist of multiple subpasses. Subpasses are subsequent rendering operations that depend on the contents of framebuffers in previous passes
+        ///Every subpass references one or more of the attachments. (attachment references)
+        VkAttachmentReference colorAttachmentRef = {};
+        colorAttachmentRef.attachment = 0;///specifies which attachment to reference by its index in the attachment descriptions array (The index of the attachment in this array is directly referenced from the fragment shader with the layout(location = 0) out vec4 outColor directive!)
+        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        
+        VkSubpassDescription subpass = {};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &colorAttachmentRef;
+        
+        //Creating the render pass
+        VkRenderPassCreateInfo renderPassInfo = {};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassInfo.attachmentCount = 1;
+        renderPassInfo.pAttachments = &colorAttachment;
+        renderPassInfo.subpassCount = 1;
+        renderPassInfo.pSubpasses = &subpass;
+
+        if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create render pass!");
+        }
+    }
     void createGraphicsPipeline() {
         auto vertShaderCode = readFile("Resources/shaders/vert.spv");
         auto fragShaderCode = readFile("Resources/shaders/frag.spv");
@@ -494,11 +532,37 @@ private:
         pipelineLayoutInfo.pSetLayouts = nullptr; // Optional
         pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
         pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
-
+        ///create pipelineLayout object
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("failed to create pipeline layout!");
         }
+        //Finally we can now begin filling in the VkGraphicsPipelineCreateInfo structure
+        VkGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = nullptr; // Optional
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = nullptr; // Optional
+        ///the fixed-function stage.
+        pipelineInfo.layout = pipelineLayout;
+        ///reference to the render pass and the index of the sub pass where this graphics pipeline will be used
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+        ///Vulkan allows you to create a new graphics pipeline by deriving from an existing pipeline
+        pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+        pipelineInfo.basePipelineIndex = -1; // Optional
         
+        
+        //And finally create the graphics pipeline:
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create graphics pipeline!");
+        }
         
         //Clear the used shader modules
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
@@ -511,7 +575,9 @@ private:
         }
     }
     void cleanup() {
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        vkDestroyRenderPass(device, renderPass, nullptr);
         for (auto imageView : swapChainImageViews) {
             vkDestroyImageView(device, imageView, nullptr);
         }
