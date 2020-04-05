@@ -94,6 +94,9 @@ private:
         VkQueue graphicsQueue;
         VkQueue presentQueue;
         VkSwapchainKHR swapChain;
+        std::vector<VkImage> swapChainImages;
+        VkFormat swapChainImageFormat;
+        VkExtent2D swapChainExtent;
 private:
     void initWindow() {
         glfwInit();
@@ -297,6 +300,15 @@ private:
         if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
             throw std::runtime_error("failed to create swap chain!");
         }
+        //retrieve the image handles
+        ///we only specified a minimum number of images in the swap chain, so the implementation is allowed to create a swap chain with more
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+        swapChainImages.resize(imageCount);
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+        //store the format and extent we've chosen for the swap chain images
+        swapChainImageFormat = surfaceFormat.format;
+        swapChainExtent = extent;
+        ///We now have a set of images that can be drawn onto and can be presented to the window
     }
 
     void mainLoop() {
