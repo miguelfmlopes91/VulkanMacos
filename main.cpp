@@ -160,6 +160,14 @@ private:
         createSyncObjects();
     }
     void recreateSwapChain() {
+        ///deal with minimizaition
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(window, &width, &height);
+        while (width == 0 || height == 0) {
+            glfwGetFramebufferSize(window, &width, &height);
+            glfwWaitEvents();
+        }
+        
         ///we shouldn't touch resources that may still be in use.
         vkDeviceWaitIdle(device);
 
@@ -204,7 +212,7 @@ private:
             createInfo.ppEnabledLayerNames = validationLayers.data();
             
             populateDebugMessengerCreateInfo(debugCreateInfo);
-            createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;
+            createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;//TODO: figure out way
         } else {
             createInfo.enabledLayerCount = 0;
             createInfo.pNext = nullptr;
