@@ -8,6 +8,8 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+
 
 #include <iostream>
 #include <stdexcept>
@@ -20,6 +22,7 @@
 #include <cstdint> // Necessary for UINT32_MAX
 #include <algorithm>
 #include <fstream>
+#include <array>
 
 
 const int WIDTH = 800;
@@ -41,6 +44,45 @@ struct QueueFamilyIndices {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
  };
+
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+    
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription bindingDescription = {};
+        bindingDescription.binding = 0;
+        bindingDescription.stride = sizeof(Vertex);
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;///Move to the next data entry after each vertex
+
+        return bindingDescription;
+    }
+    
+    ///describes how to extract a vertex attribute from a chunk of vertex data originating from a binding description
+    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+        ///position
+        attributeDescriptions[0].binding = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].offset = offsetof(Vertex, pos);
+        ///color
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+        return attributeDescriptions;
+    }
+};
+
+const std::vector<Vertex> vertices = {
+    ///position                 ///color
+    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+};
+
 /*
  Basic surface capabilities (min/max number of images in swap chain, min/max width and height of images)
  Surface formats (pixel format, color space)
@@ -123,7 +165,8 @@ private:
         std::vector<VkFence> inFlightFences;
         std::vector<VkFence> imagesInFlight;
         size_t currentFrame = 0;
-    
+        VkBuffer vertexBuffer;
+        VkDeviceMemory vertexBufferMemory;
         bool framebufferResized = false;
     
 private:
@@ -156,6 +199,7 @@ private:
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
+        createVertexBuffer();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -477,10 +521,14 @@ private:
         ///describes the format of the vertex data that will be passed to the vertex shader.
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 0;
-        vertexInputInfo.pVertexBindingDescriptions = nullptr; // Optional
-        vertexInputInfo.vertexAttributeDescriptionCount = 0;
-        vertexInputInfo.pVertexAttributeDescriptions = nullptr; // Optional
+        
+        auto bindingDescription = Vertex::getBindingDescription();
+        auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
+        vertexInputInfo.vertexBindingDescriptionCount = 1;
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
         
         //Input assembly stage
         ///what kind of geometry will be drawn from the vertices and if primitive restart should be enabled
@@ -662,6 +710,55 @@ private:
             throw std::runtime_error("failed to create command pool!");
         }
     }
+    void createVertexBuffer() {
+        VkBufferCreateInfo bufferInfo = {};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;///The buffer will only be used from the graphics queue,
+        
+        ///create vertexBuffer object. Still need to allocate memory for it
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create vertex buffer!");
+        }
+        ///query its memory requirements
+        VkMemoryRequirements memRequirements;
+        vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+        
+        VkMemoryAllocateInfo allocInfo = {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate vertex buffer memory!");
+        }
+        
+        vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+        ///copy the vertex data to the buffer
+        void* data;
+        
+        ///This function allows us to access a region of the specified memory resource defined by an offset and size. The offset and size here are 0 and bufferInfo.size, respectively. It is also possible to specify the special value VK_WHOLE_SIZE to map all of the memory.
+        ///The second to last parameter can be used to specify flags, but there aren't any available yet in the current API. It must be set to the value 0. The last parameter specifies the output for the pointer to the mapped memory.
+        vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+        memcpy(data, vertices.data(), (size_t) bufferInfo.size);///cpy the vertex data to the mapped memory
+        vkUnmapMemory(device, vertexBufferMemory);///free the memory
+        
+        //Warning::Unfortunately the driver may not immediately copy the data into the buffer memory, for example because of caching.
+        //It is also possible that writes to the buffer are not visible in the mapped memory yet.
+        //There are two ways to deal with that problem:
+        /// - Use a memory heap that is host coherent, indicated with VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        /// - Call vkFlushMappedMemoryRanges to after writing to the mapped memory, and call vkInvalidateMappedMemoryRanges before reading from the mapped memory
+        
+        //We went for the first approach, which ensures that the mapped memory always matches the contents of the allocated memory. Do keep in mind that this may lead to slightly worse performance than explicit flushing.
+        
+        //Flushing memory ranges or using a coherent memory heap means that the driver will be aware of our writes to the buffer, but it doesn't mean that they are actually visible on the GPU yet. The transfer of data to the GPU is an operation that happens in the background and the specification simply tells us that it is guaranteed to be complete as of the next call to vkQueueSubmit.
+        
+        
+        
+        
+    }
     void createCommandBuffers() {
         ///Commands in Vulkan, like drawing operations and memory transfers, are not executed directly using function calls.
         ///You have to record all of the operations you want to perform in command buffer objects.
@@ -711,6 +808,14 @@ private:
             ///The second parameter specifies if the pipeline object is a graphics or compute pipeline
             vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
             
+            ///binding the vertex buffer
+            VkBuffer vertexBuffers[] = {vertexBuffer};
+            VkDeviceSize offsets[] = {0};
+            vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
+
+            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+            
+            
             //The ACTUAL DRAW FUNC
             /*
              - vertexCount: Even though we don't have a vertex buffer, we technically still have 3 vertices to draw.
@@ -723,7 +828,7 @@ private:
             //The render pass can now be ended:
             vkCmdEndRenderPass(commandBuffers[i]);
 
-            //Now check if we0re able to finish recording the command buffer correctly
+            //Now check if we're able to finish recording the command buffer correctly
             if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
                 throw std::runtime_error("failed to record command buffer!");
             }
@@ -754,7 +859,6 @@ private:
             }
         }
     }
-
     void cleanupSwapChain() {
         for (size_t i = 0; i < swapChainFramebuffers.size(); i++) {
             vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
@@ -868,6 +972,9 @@ private:
     }
     void cleanup() {
         cleanupSwapChain();
+        
+        vkDestroyBuffer(device, vertexBuffer, nullptr);
+        vkFreeMemory(device, vertexBufferMemory, nullptr);
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
@@ -988,6 +1095,17 @@ private:
          extensions.push_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
          }*/
         return extensions;
+    }
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+        
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+        throw std::runtime_error("failed to find suitable memory type!");
     }
     
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
