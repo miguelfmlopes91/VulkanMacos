@@ -78,7 +78,7 @@ struct Vertex {
 
 const std::vector<Vertex> vertices = {
     ///position                 ///color
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
     {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
     {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 };
@@ -710,7 +710,7 @@ private:
             throw std::runtime_error("failed to create command pool!");
         }
     }
-    void createVertexBuffer() {
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
         VkBufferCreateInfo bufferInfo = {};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = sizeof(vertices[0]) * vertices.size();
@@ -733,16 +733,20 @@ private:
         if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
             throw std::runtime_error("failed to allocate vertex buffer memory!");
         }
-        
-        vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+        vkBindBufferMemory(device, buffer, bufferMemory, 0);
+    }
+    void createVertexBuffer() {
+        VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+        createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexBuffer, vertexBufferMemory);
 
         ///copy the vertex data to the buffer
         void* data;
         
         ///This function allows us to access a region of the specified memory resource defined by an offset and size. The offset and size here are 0 and bufferInfo.size, respectively. It is also possible to specify the special value VK_WHOLE_SIZE to map all of the memory.
         ///The second to last parameter can be used to specify flags, but there aren't any available yet in the current API. It must be set to the value 0. The last parameter specifies the output for the pointer to the mapped memory.
-        vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-        memcpy(data, vertices.data(), (size_t) bufferInfo.size);///cpy the vertex data to the mapped memory
+        vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
+        memcpy(data, vertices.data(), (size_t) bufferSize);///cpy the vertex data to the mapped memory
         vkUnmapMemory(device, vertexBufferMemory);///free the memory
         
         //Warning::Unfortunately the driver may not immediately copy the data into the buffer memory, for example because of caching.
@@ -754,10 +758,7 @@ private:
         //We went for the first approach, which ensures that the mapped memory always matches the contents of the allocated memory. Do keep in mind that this may lead to slightly worse performance than explicit flushing.
         
         //Flushing memory ranges or using a coherent memory heap means that the driver will be aware of our writes to the buffer, but it doesn't mean that they are actually visible on the GPU yet. The transfer of data to the GPU is an operation that happens in the background and the specification simply tells us that it is guaranteed to be complete as of the next call to vkQueueSubmit.
-        
-        
-        
-        
+
     }
     void createCommandBuffers() {
         ///Commands in Vulkan, like drawing operations and memory transfers, are not executed directly using function calls.
@@ -813,17 +814,15 @@ private:
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 
-            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-            
-            
             //The ACTUAL DRAW FUNC
             /*
-             - vertexCount: Even though we don't have a vertex buffer, we technically still have 3 vertices to draw.
+             - the current command buffer object
+             - vertexCount: vertex buffer size (3)
              - instanceCount: Used for instanced rendering, use 1 if you're not doing that.
              - firstVertex: Used as an offset into the vertex buffer, defines the lowest value of gl_VertexIndex.
              - firstInstance: Used as an offset for instanced rendering, defines the lowest value of gl_InstanceIndex.
              */
-            vkCmdDraw(commandBuffers[i], 3, 1, 0, 0);
+            vkCmdDraw(commandBuffers[i], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
 
             //The render pass can now be ended:
             vkCmdEndRenderPass(commandBuffers[i]);
