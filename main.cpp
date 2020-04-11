@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <fstream>
 #include <array>
+#include <unordered_map>
 
 
 const int WIDTH = 800;
@@ -94,7 +95,22 @@ struct Vertex {
         
         return attributeDescriptions;
     }
+    
+    //For hash table imp
+    bool operator==(const Vertex& other) const {
+        return pos == other.pos && color == other.color && texCoord == other.texCoord;
+    }
 };
+///A hash function for Vertex is implemented by specifying a template specialization for std::hash<T>. Hash functions are a complex topic, but cppreference.com recommends the following approach combining the fields of a struct to create a decent quality hash function:
+namespace std {
+    template<> struct hash<Vertex> {
+        size_t operator()(Vertex const& vertex) const {
+            return ((hash<glm::vec3>()(vertex.pos) ^
+                   (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+                   (hash<glm::vec2>()(vertex.texCoord) << 1);
+        }
+    };
+}
 
 /*const std::vector<Vertex> vertices = {
     ///position                 ///color                                ///coordinates
@@ -1070,7 +1086,7 @@ private:
             throw std::runtime_error(warn + err);
         }
         
-        //std::unordered_map<Vertex, uint32_t> uniqueVertices = {};
+        std::unordered_map<Vertex, uint32_t> uniqueVertices = {};
         
         ///We're going to combine all of the faces in the file into a single model, so just iterate over all of the shapes:
         for (const auto& shape : shapes) {
@@ -1094,14 +1110,13 @@ private:
                 
                 vertex.color = {1.0f, 1.0f, 1.0f};
 
-//                if (uniqueVertices.count(vertex) == 0) {
-//                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-//                    vertices.push_back(vertex);
-//                }
-//
-//                indices.push_back(uniqueVertices[vertex]);
+                if (uniqueVertices.count(vertex) == 0) {
+                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                    vertices.push_back(vertex);
+                }
+
                 vertices.push_back(vertex);
-                indices.push_back(indices.size());
+                indices.push_back(uniqueVertices[vertex]);///If you check the size of vertices, then you'll see that it has shrunk down from 1,500,000 to 265,645! That means that each vertex is reused in an average number of ~6 triangles. This definitely saves us a lot of GPU memory.
             }
         }
         
