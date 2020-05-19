@@ -77,9 +77,9 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurface
     return details;
 }
 
+//VkPhysicalDevice physicalDevice, VkDevice& device, VkSurfaceKHR surface, std::vector<Image>& swapChainImages, VkFormat& swapChainImageFormat, VkExtent2D& swapChainExtent, GLFWwindow* window
 
-
-VkSwapchainKHR createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& device, VkSurfaceKHR surface, std::vector<VkImage>& swapChainImages, VkFormat& swapChainImageFormat, VkExtent2D& swapChainExtent, GLFWwindow* window){
+void SwapChain::createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& device, VkSurfaceKHR surface, std::vector<VkImage>& swapChainImages, VkFormat& swapChainImageFormat, VkExtent2D& swapChainExtent, GLFWwindow* window){
     
     SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
         
@@ -134,10 +134,41 @@ VkSwapchainKHR createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& device
     ///we only specified a minimum number of images in the swap chain, so the implementation is allowed to create a swap chain with more
     vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
     swapChainImages.resize(imageCount);
+    
     vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
     //store the format and extent we've chosen for the swap chain images
     swapChainImageFormat = surfaceFormat.format;
     swapChainExtent = extent;
     ///We now have a set of images that can be drawn onto and can be presented to the window
-    return swapChain;
+     mSwapchain =swapChain;
+}
+
+void SwapChain::cleanupSwapChain(VkDevice device, VkImageView depthImageView, VkImage depthImage, VkDeviceMemory depthImageMemory,     std::vector<VkFramebuffer> swapChainFramebuffers,VkCommandPool commandPool, std::vector<VkCommandBuffer> commandBuffers, VkPipeline graphicsPipeline, VkPipelineLayout pipelineLayout, VkRenderPass renderPass, std::vector<VkImageView> swapChainImageViews, std::vector<Buffer> uniformBuffers, VkDescriptorPool descriptorPool, std::vector<VkImage> swapChainImages) {
+    
+    vkDestroyImageView(device, depthImageView, nullptr);
+    vkDestroyImage(device, depthImage, nullptr);
+    vkFreeMemory(device, depthImageMemory, nullptr);
+    
+    for (size_t i = 0; i < swapChainFramebuffers.size(); i++) {
+        vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
+    }
+
+    vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+    vkDestroyRenderPass(device, renderPass, nullptr);
+
+    for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+        vkDestroyImageView(device, swapChainImageViews[i], nullptr);
+    }
+
+    vkDestroySwapchainKHR(device, mSwapchain, nullptr);
+    
+    ///The descriptor pool should be destroyed when the swap chain is recreated because it depends on the number of images.
+    for (size_t i = 0; i < swapChainImages.size(); i++) {
+        vkDestroyBuffer(device, uniformBuffers[i].mBuffer, nullptr);
+        vkFreeMemory(device, uniformBuffers[i].mBufferMemory, nullptr);
+    }
+    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 }
