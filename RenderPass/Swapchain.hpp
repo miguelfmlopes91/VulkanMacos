@@ -11,6 +11,7 @@
 #include "Buffer.hpp"
 #include "Image.hpp"
 #include <vector>
+#include <optional>
 /*
  Basic surface capabilities (min/max number of images in swap chain, min/max width and height of images)
  Surface formats (pixel format, color space)
@@ -20,17 +21,23 @@ struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
+    
+    SwapChainSupportDetails(VkPhysicalDevice device, VkSurfaceKHR surface);
 };
 
-struct SwapChain {
+class SwapChain {
+public:
+    void createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& device, VkSurfaceKHR surface, std::vector<VkImage>& swapChainImages, VkFormat& swapChainImageFormat, VkExtent2D& swapChainExtent, GLFWwindow* window);
+
+    void cleanupSwapChain(VkDevice device, VkImageView depthImageView, VkImage depthImage, VkDeviceMemory depthImageMemory,     std::vector<VkFramebuffer> swapChainFramebuffers,VkCommandPool commandPool, std::vector<VkCommandBuffer> commandBuffers, VkPipeline graphicsPipeline, VkPipelineLayout pipelineLayout, VkRenderPass renderPass, std::vector<VkImageView> swapChainImageViews, std::vector<Buffer> uniformBuffers, VkDescriptorPool descriptorPool, std::vector<VkImage> swapChainImages);
+    
+    VkSwapchainKHR getSwapChain(){return mSwapchain;}
+private:
     std::vector<VkImage> mImages;
     std::vector<VkImageView> mImageViews;
     VkSwapchainKHR mSwapchain = VK_NULL_HANDLE;
     
-    
-    void createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& device, VkSurfaceKHR surface, std::vector<VkImage>& swapChainImages, VkFormat& swapChainImageFormat, VkExtent2D& swapChainExtent, GLFWwindow* window);
-
-    void cleanupSwapChain(VkDevice device, VkImageView depthImageView, VkImage depthImage, VkDeviceMemory depthImageMemory,     std::vector<VkFramebuffer> swapChainFramebuffers,VkCommandPool commandPool, std::vector<VkCommandBuffer> commandBuffers, VkPipeline graphicsPipeline, VkPipelineLayout pipelineLayout, VkRenderPass renderPass, std::vector<VkImageView> swapChainImageViews, std::vector<Buffer> uniformBuffers, VkDescriptorPool descriptorPool, std::vector<VkImage> swapChainImages);
+    std::optional<SwapChainSupportDetails> _supportDetails = std::nullopt;
 };
 
 

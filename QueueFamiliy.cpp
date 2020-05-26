@@ -9,7 +9,7 @@
 #include "QueueFamiliy.hpp"
 #include <vector>
 
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) {
+QueueFamilyIndices QueueFamilyIndices::findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) {
     QueueFamilyIndices indices;
     // Logic to find queue family indices to populate struct with
     uint32_t queueFamilyCount = 0;

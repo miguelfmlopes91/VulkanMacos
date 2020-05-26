@@ -16,8 +16,9 @@ struct QueueFamilyIndices {
    bool isComplete() {
        return graphicsFamily.has_value() && presentFamily.has_value();
    }
+    static QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
 };
 
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
+
 //cleanupSwapChain
 

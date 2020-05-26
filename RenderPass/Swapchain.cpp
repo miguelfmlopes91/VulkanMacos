@@ -13,6 +13,30 @@
 #include <GLFW/glfw3native.h>
 #include <algorithm>
 
+
+//Swap chain support setup
+SwapChainSupportDetails::SwapChainSupportDetails(VkPhysicalDevice device, VkSurfaceKHR surface) {
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
+
+    ///querying the supported surface formats.
+    uint32_t formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+
+    if (formatCount != 0) {
+        formats.resize(formatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, formats.data());
+    }
+    
+    ///querying the supported presentation modes
+    uint32_t presentModeCount;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+
+    if (presentModeCount != 0) {
+        presentModes.resize(presentModeCount);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, presentModes.data());
+    }
+}
+
 //Swap chain SETUP requirements
 /*
  - Surface format (color depth)
@@ -50,38 +74,13 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwi
     }
 }
 
-//Swap chain support setup
-SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface) {
-    SwapChainSupportDetails details;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
 
-    ///querying the supported surface formats.
-    uint32_t formatCount;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-
-    if (formatCount != 0) {
-        details.formats.resize(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
-    }
-    
-    ///querying the supported presentation modes
-    uint32_t presentModeCount;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-
-    if (presentModeCount != 0) {
-        details.presentModes.resize(presentModeCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
-    }
-    
-    
-    return details;
-}
 
 //VkPhysicalDevice physicalDevice, VkDevice& device, VkSurfaceKHR surface, std::vector<Image>& swapChainImages, VkFormat& swapChainImageFormat, VkExtent2D& swapChainExtent, GLFWwindow* window
 
 void SwapChain::createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& device, VkSurfaceKHR surface, std::vector<VkImage>& swapChainImages, VkFormat& swapChainImageFormat, VkExtent2D& swapChainExtent, GLFWwindow* window){
     
-    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
+    SwapChainSupportDetails swapChainSupport = SwapChainSupportDetails(physicalDevice, surface);
         
     VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
     VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
@@ -105,7 +104,7 @@ void SwapChain::createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& devic
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     
     //Specify how to handle swap chain images that will be used across multiple queue families.
-    QueueFamilyIndices indices = findQueueFamilies(physicalDevice, surface);
+    QueueFamilyIndices indices = QueueFamilyIndices::findQueueFamilies(physicalDevice, surface);
     uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
 
     //We'll be drawing on the images in the swap chain from the graphics queue and then submitting them on the presentation queue
@@ -140,7 +139,7 @@ void SwapChain::createSwapChain(VkPhysicalDevice physicalDevice, VkDevice& devic
     swapChainImageFormat = surfaceFormat.format;
     swapChainExtent = extent;
     ///We now have a set of images that can be drawn onto and can be presented to the window
-     mSwapchain =swapChain;
+     mSwapchain = swapChain;
 }
 
 void SwapChain::cleanupSwapChain(VkDevice device, VkImageView depthImageView, VkImage depthImage, VkDeviceMemory depthImageMemory,     std::vector<VkFramebuffer> swapChainFramebuffers,VkCommandPool commandPool, std::vector<VkCommandBuffer> commandBuffers, VkPipeline graphicsPipeline, VkPipelineLayout pipelineLayout, VkRenderPass renderPass, std::vector<VkImageView> swapChainImageViews, std::vector<Buffer> uniformBuffers, VkDescriptorPool descriptorPool, std::vector<VkImage> swapChainImages) {
