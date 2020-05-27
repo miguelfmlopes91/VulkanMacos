@@ -16,8 +16,7 @@
 class PhysicalDevice{
 public:
     PhysicalDevice() = delete;
-    PhysicalDevice(const Instance* instance, VkSurfaceKHR* surface);
-    PhysicalDevice(const std::shared_ptr<Instance> instance, VkSurfaceKHR* surface);
+    PhysicalDevice(std::shared_ptr<Instance> instance, std::shared_ptr<VkSurfaceKHR> surface);
     void pickPhysicalDevice();//TODO: Make this the constructor
     const VkPhysicalDevice& getDevice() const { return mPhysicalDevice; }
     VkPhysicalDevice& getDevice() { return mPhysicalDevice; }
@@ -26,10 +25,11 @@ public:
 private:
     bool isDeviceSuitable(VkPhysicalDevice device);
     bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-
-    const Instance* _instance;
-    VkSurfaceKHR* _surface;
     
+    std::shared_ptr<Instance> _instance;
+    std::shared_ptr<VkSurfaceKHR> _surface;
+    
+    //TODO:make a struct for these
     VkPhysicalDevice mPhysicalDevice = VK_NULL_HANDLE;
     VkPhysicalDeviceProperties mProperties = {};
     VkPhysicalDeviceFeatures mFeatures = {};

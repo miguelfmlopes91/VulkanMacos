@@ -15,8 +15,8 @@
 class LogicalDevice {
 public:
     LogicalDevice() = delete;
-    LogicalDevice(const PhysicalDevice *physicalDevice, const VkSurfaceKHR* surface);
-    
+    LogicalDevice(std::shared_ptr<PhysicalDevice> device, std::shared_ptr<VkSurfaceKHR> surface);
+
     void createLogicalDevice(VkQueue& graphicsQueue, VkQueue& presentQueue);
     const VkDevice &GetLogicalDevice() const { return mLogicalDevice; }
     VkDevice &GetLogicalDevice(){ return mLogicalDevice; }
@@ -25,8 +25,8 @@ public:
     
 private:
     VkDevice mLogicalDevice = VK_NULL_HANDLE;
-    const VkSurfaceKHR* _surface = VK_NULL_HANDLE;
-    const PhysicalDevice* _physicalDevice = nullptr;
+    std::shared_ptr<PhysicalDevice> _physicalDevice;
+    std::shared_ptr<VkSurfaceKHR> _surface;
     
     ///list of required device extensions
     static const std::vector<const char*> deviceExtensions;

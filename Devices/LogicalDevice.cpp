@@ -15,9 +15,7 @@ const std::vector<const char*> LogicalDevice::deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-
-LogicalDevice::LogicalDevice(const PhysicalDevice* physicalDevice,
-                             const VkSurfaceKHR* surface) : _physicalDevice(physicalDevice), _surface(surface){
+LogicalDevice::LogicalDevice(std::shared_ptr<PhysicalDevice> device, std::shared_ptr<VkSurfaceKHR> surface):_physicalDevice(device),_surface(surface){
     
 }
 

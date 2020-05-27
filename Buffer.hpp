@@ -12,7 +12,7 @@
 struct Buffer
 {
     VkBuffer mBuffer;
-    VkDeviceMemory mBufferMemory;
+    VkDeviceMemory mBufferMemory;//TODO:free after allocate
     void* mData;
     VkDeviceSize mBufferSize; ///Can it be size_t?
     

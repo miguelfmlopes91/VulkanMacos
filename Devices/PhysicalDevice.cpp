@@ -14,7 +14,7 @@
 #include <set>
 #include <string>
 
-PhysicalDevice::PhysicalDevice(const Instance* instance, VkSurfaceKHR* surface):_instance(instance), _surface(surface){
+PhysicalDevice::PhysicalDevice(std::shared_ptr<Instance> instance, std::shared_ptr<VkSurfaceKHR> surface):_instance(instance), _surface(surface){
     
 }
 

@@ -11,7 +11,7 @@
 struct Image
 {
     VkImage mImage;
-    VkDeviceMemory mDeviceMemory;
+    VkDeviceMemory mDeviceMemory;//TODO:free after allocate
     uint32_t mMipLevels = 0;
     VkImageView mImageView;
 

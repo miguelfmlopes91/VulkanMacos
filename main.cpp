@@ -93,9 +93,9 @@ public:
 private:
     GLFWwindow* _window;
     std::shared_ptr<Instance> _instance;
-    VkSurfaceKHR* _surface;
-    PhysicalDevice* _physicalDevice;
-    LogicalDevice* _device;
+    std::shared_ptr<VkSurfaceKHR> _surface;
+    std::shared_ptr<PhysicalDevice> _physicalDevice;
+    std::unique_ptr<LogicalDevice> _device;
 
     VkQueue _graphicsQueue;
     VkQueue _presentQueue;
@@ -134,7 +134,7 @@ private:
     std::vector<VkDescriptorSet> _descriptorSets;
     uint32_t _mipLevels;
     VkImage _textureImage;//TODO::remove
-    VkDeviceMemory _textureImageMemory;
+    //VkDeviceMemory _textureImageMemory;
     
     //VkImage _depthImage;
     //VkDeviceMemory _depthImageMemory;
@@ -173,12 +173,12 @@ private:
         _instance->createInstance();
         _instance->setupDebugMessenger();
         
-        _surface = new VkSurfaceKHR();
+        _surface = std::make_shared<VkSurfaceKHR>();
         
         createSurface();
-        _physicalDevice = new PhysicalDevice(_instance.get(), _surface);
+        _physicalDevice = std::make_shared<PhysicalDevice>(_instance, _surface);
         _physicalDevice->pickPhysicalDevice();
-        _device = new LogicalDevice(_physicalDevice, _surface);
+        _device = std::make_unique<LogicalDevice>(_physicalDevice, _surface);
         _device->createLogicalDevice(_graphicsQueue, _presentQueue);
         
         _swapChain.createSwapChain(_physicalDevice->getDevice(),_device->GetLogicalDevice(),*_surface,_swapChainImages,_swapChainImageFormat,_swapChainExtent, _window);
@@ -233,7 +233,7 @@ private:
     
 
     void createSurface() {
-        if (glfwCreateWindowSurface(_instance->getInstance(), _window, nullptr, _surface) != VK_SUCCESS) {
+        if (glfwCreateWindowSurface(_instance->getInstance(), _window, nullptr, _surface.get()) != VK_SUCCESS) {
             throw std::runtime_error("failed to create window surface!");
         }
     }
@@ -1018,7 +1018,7 @@ private:
         //vkDestroySampler(_device, _textureSampler, nullptr);//TODO
         //vkDestroyImageView(_device, _textureImageView, nullptr);//TODO:
         //vkDestroyImage(_device->GetLogicalDevice(), _textureImage, nullptr);
-        vkFreeMemory(_device->GetLogicalDevice(), _textureImageMemory, nullptr);
+        //vkFreeMemory(_device->GetLogicalDevice(), _textureImageMemory, nullptr);
         vkDestroyDescriptorSetLayout(_device->GetLogicalDevice(), _descriptorSetLayout, nullptr);
         //vkDestroyBuffer(_device, _indexBuffer, nullptr);
         //vkFreeMemory(_device, _indexBufferMemory, nullptr);
@@ -1036,6 +1036,7 @@ private:
 //        if (enableValidationLayers) {
 //            DestroyDebugUtilsMessengerEXT(_instance, debugMessenger, nullptr);
 //        }
+        
         vkDestroySurfaceKHR(_instance->getInstance(), *_surface, nullptr);
         vkDestroyInstance(_instance->getInstance(), nullptr);
         glfwDestroyWindow(_window);
