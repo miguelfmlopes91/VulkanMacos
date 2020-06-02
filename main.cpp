@@ -29,6 +29,11 @@
 #include "Instance.hpp"
 #include "PhysicalDevice.hpp"
 #include "LogicalDevice.hpp"
+#include "CommandBuffer.hpp"
+
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
 
 const int WIDTH = 800;
 const int HEIGHT = 600;
@@ -36,6 +41,7 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 const std::string MODEL_PATH = "Resources/models/chalet.obj";
 const std::string TEXTURE_PATH = "Resources/textures/chalet.jpg";
 
+double deltaTime = 0.0, lastFrame = 0.0;
 
 
 
@@ -80,6 +86,14 @@ static std::vector<char> readFile(const std::string& filename) {
 
     return buffer;
 }
+//error handling function
+static void check_vk_result(VkResult err){
+    if (err == 0)
+        return;
+    fprintf(stderr, "[vulkan] Error: VkResult = %d\n", err);
+    if (err < 0)
+        abort();
+}
 
 class HelloTriangleApplication {
 public:
@@ -88,8 +102,12 @@ public:
         initVulkan();
         mainLoop();
         cleanup();
+        if (changeImage) {
+            changeImageName();
+            changeImage = false;
+        }
     }
-        
+    
 private:
     GLFWwindow* _window;
     std::shared_ptr<Instance> _instance;
@@ -120,34 +138,29 @@ private:
     std::vector<Vertex> _vertices;
     std::vector<uint32_t> _indices;
     
-//    VkBuffer _vertexBuffer;
-//    VkDeviceMemory _vertexBufferMemory;
-    
-//    VkBuffer _indexBuffer;
-//    VkDeviceMemory _indexBufferMemory;
-    
-    //std::vector<VkBuffer> _uniformBuffers;
-    //std::vector<VkDeviceMemory> _uniformBuffersMemory;
     std::vector<Buffer> _uniformBuffers;
     
     VkDescriptorPool _descriptorPool;
     std::vector<VkDescriptorSet> _descriptorSets;
     uint32_t _mipLevels;
-    VkImage _textureImage;//TODO::remove
-    //VkDeviceMemory _textureImageMemory;
-    
-    //VkImage _depthImage;
-    //VkDeviceMemory _depthImageMemory;
-    //VkImageView _depthImageView;
     size_t _currentFrame = 0;
     bool _framebufferResized = false;
-    
     
     Texture _texture = Texture(TEXTURE_PATH);
     Image _depthImageN;
     
     Buffer _vertexBuffer;
     Buffer _indexBuffer;
+    
+    // ImGui.
+    bool isImGuiWindowCreated = false;
+    bool flip = false;
+    bool changeImage = false;
+    bool writeImage = false;
+    bool framebufferResized = false;
+    bool showOpenCV = false;
+    float sizeMultiplier = 5.0f, alpha = 0.1f, xTrans = 0.0f, yTrans = 0.0f, transparency = 0.0f, resize = 1.0f;
+    std::string tempOutImageName;
     
 private:
     void initWindow() {
@@ -205,6 +218,8 @@ private:
         createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
+        initImGui(float(_swapChainExtent.width), float(_swapChainExtent.height));
+
     }
     void recreateSwapChain() {
         ///deal with minimizaition
@@ -702,17 +717,20 @@ private:
         
     }
     void createDescriptorPool() {
-        std::array<VkDescriptorPoolSize, 2> poolSizes = {};
+        std::array<VkDescriptorPoolSize, 3> poolSizes = {};
               poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
               poolSizes[0].descriptorCount = static_cast<uint32_t>(_swapChainImages.size());
               poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-              poolSizes[1].descriptorCount = static_cast<uint32_t>(_swapChainImages.size());
+              poolSizes[1].descriptorCount = static_cast<uint32_t>(_swapChainImages.size())*2;
+              // This Descriptor Pool is Used by ImGui
+              poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+              poolSizes[2].descriptorCount = static_cast<uint32_t>(_swapChainImages.size());
 
               VkDescriptorPoolCreateInfo poolInfo = {};
               poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
               poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
               poolInfo.pPoolSizes = poolSizes.data();
-              poolInfo.maxSets = static_cast<uint32_t>(_swapChainImages.size());
+              poolInfo.maxSets = static_cast<uint32_t>(_swapChainImages.size()) +1;
 
         if (vkCreateDescriptorPool(_device->GetLogicalDevice(), &poolInfo, nullptr, &_descriptorPool) != VK_SUCCESS) {
                   throw std::runtime_error("failed to create descriptor pool!");
@@ -842,6 +860,12 @@ private:
             vkCmdDrawIndexed(_commandBuffers[i], static_cast<uint32_t>(_indices.size()), 1, 0, 0, 0);
 
             
+            // Bind Dear Imgui pipeline to draw UI elements inside UI box
+            if (isImGuiWindowCreated)
+            {
+                ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), _commandBuffers[i]);
+            }
+            
             //The render pass can now be ended:
             vkCmdEndRenderPass(_commandBuffers[i]);
 
@@ -851,7 +875,7 @@ private:
             }
         }
         
-
+        isImGuiWindowCreated = false;
     }
     void createSyncObjects(){
         //Synchronization
@@ -876,11 +900,131 @@ private:
             }
         }
     }
+    void initImGui(float width, float height) {
+        QueueFamilyIndices Indices = QueueFamilyIndices::findQueueFamilies(_physicalDevice->getDevice(), *_surface.get());
+
+        // Setup Dear ImGui context
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO(); (void)io;
+        //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+        //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+        //io.Fonts->AddFontFromFileTTF("../../Assets/Fonts/Roboto-Medium.ttf", 16.0f);
+
+        // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
+//        ImGuiStyle& style = ImGui::GetStyle();
+//        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+//        {
+//            style.WindowRounding = 0.0f;
+//            style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+//        }
+//
+//        io.DisplaySize = ImVec2(width, height);
+//        io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+
+        // Setup Platform/Renderer bindings
+        ImGui_ImplGlfw_InitForVulkan(_window, true);
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance = _instance->getInstance();
+        init_info.PhysicalDevice = _physicalDevice->getDevice();
+        init_info.Device = _device->GetLogicalDevice();
+        init_info.QueueFamily = Indices.graphicsFamily.value();
+        init_info.Queue = _presentQueue;
+        init_info.PipelineCache = VK_NULL_HANDLE;
+        init_info.DescriptorPool = _descriptorPool;
+        init_info.Allocator = NULL;
+        init_info.MinImageCount = 2;
+        init_info.ImageCount = static_cast<uint32_t>(_swapChainImages.size());
+        init_info.CheckVkResultFn = NULL;
+        ImGui_ImplVulkan_Init(&init_info, _renderPass);
+
+        // Setup Dear ImGui style
+        ImGui::StyleColorsDark();
+        
+        CommandBuffer commandBuffer;
+        commandBuffer.beginSingleTimeCommands(_commandPool, _device->GetLogicalDevice());
+        ImGui_ImplVulkan_CreateFontsTexture(commandBuffer.GetCommandBuffer());
+        commandBuffer.endSingleTimeCommands(_graphicsQueue, _device->GetLogicalDevice(), _commandPool);
+        ImGui_ImplVulkan_DestroyFontUploadObjects();
+    }
+    void imGuiSetupWindow() {
+        ImGuiIO& io = ImGui::GetIO();
+        // Start the Dear ImGui frame
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+
+        auto WindowSize = ImVec2((float)_swapChainExtent.width, (float)_swapChainExtent.height);
+        ImGui::SetNextWindowSize(WindowSize, ImGuiCond_::ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_::ImGuiCond_FirstUseEver);
+        ImGui::NewFrame();
+
+        // render your GUI
+        ImGui::Begin("Editor");
+        ImGui::Text(std::to_string(deltaTime * 1000.0).c_str());
+
+        if (ImGui::Button("Reload")) {
+            changeImage = true;
+        }
+        ImGui::Checkbox("Show OpenCV", &showOpenCV);
+        ImGui::Checkbox("Flip Image", &flip);
+        ImGui::SliderFloat("Size", &sizeMultiplier, 0.0, 10.0, "%.3f", 1.0f);
+        ImGui::SliderFloat("Resize Window", &resize, 1.0, 10.0, "%.3f", 1.0f);
+        ImGui::SliderFloat("XPos", &xTrans, -1.0, 1.0, "%.3f", 1.0f);
+        ImGui::SliderFloat("YPos", &yTrans, -1.0, 1.0, "%.3f", 1.0f);
+        ImGui::SliderFloat("Alpha", &alpha, 0.0, 1.0, "%.3f", 1.0f);
+        ImGui::SliderFloat("Transparency", &transparency, 0.0, 1.0, "%.3f", 1.0f);
+
+
+        ImGui::End();
+        // Render dear imgui UI box into our window
+        ImGui::Render();
+        
+        // Update and Render additional Platform Windows
+//        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+//        {
+//            //GLFWwindow* backup_current_context = glfwGetCurrentContext();
+//            ImGui::UpdatePlatformWindows();
+//            ImGui::RenderPlatformWindowsDefault();
+//            //glfwMakeContextCurrent(backup_current_context);
+//        }
+    }
+    void recreateImGuiWindow() {
+        if (!isImGuiWindowCreated)
+        {
+            ImGui_ImplVulkan_Shutdown();
+            ImGui_ImplGlfw_Shutdown();
+            ImGui::DestroyContext();
+            recreateSwapChain();
+            initImGui(float(_swapChainExtent.width), float(_swapChainExtent.height));
+            imGuiSetupWindow();
+            isImGuiWindowCreated = true;
+        }
+    }
     void mainLoop() {
+        /*
+         ///TODO: Fix subpass syncronization with Events (VkEvents)
+         ///Well, simple things first: Fences are GPU to CPU syncs while semaphores are GPU to GPU syncs, specifically they are used to sync queue submissions (on the same or different queues). They both get signaled by the GPU but fences can only be waited on by the CPU and semaphores by the GPU. Another small difference between these two is that fences need to be reset manually, while semaphores reset after being waited on.
+
+         ///Events are more general, they can be set, reset and checked on both CPU and GPU, although you can only wait on them on the GPU. However they are limited within a single queue. You can also use these to synchronize work within a command buffer, as opposed to the other two (and yes, work within a command buffer can run out of order according to the spec).
+        
+        ///TL;DR:
+        ///Fences : Set on GPU, Wait on CPU
+        ///Semaphores : Set on GPU, Wait on GPU (inter-queue)
+        ///Events: Set anywhere, Wait on GPU (intra-queue)
+        
+        ///source:http://themaister.net/blog/2019/08/14/yet-another-blog-explaining-vulkan-synchronization/
+        */
+
+
         double previousTime = glfwGetTime();
         int frameCount = 0;
         while (!glfwWindowShouldClose(_window)) {
             glfwPollEvents();
+            if (!isImGuiWindowCreated) {
+                imGuiSetupWindow();
+                isImGuiWindowCreated = true;
+            }
+            createCommandBuffers();
             drawFrame();
             // Measure speed
             double currentTime = glfwGetTime();
@@ -893,9 +1037,18 @@ private:
                 frameCount = 0;
                 previousTime = currentTime;
             }
-
         }
         vkDeviceWaitIdle(_device->GetLogicalDevice());
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+    }
+    void changeImageName() {
+        glfwDestroyWindow(_window);
+        /*IMAGE_NAMES[0] = imageName;
+        IMAGE_NAMES[NUMBER_OF_IMAGES-1] = logoImageName;*/
+        HelloTriangleApplication app;
+        app.run();
     }
     void drawFrame() {
         /*The drawFrame function will perform the following operations:
@@ -917,6 +1070,7 @@ private:
         ///check if swap chain recreation is necessary
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
             recreateSwapChain();
+            recreateImGuiWindow();
             return;
         } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             throw std::runtime_error("failed to acquire swap chain image!");
@@ -981,6 +1135,7 @@ private:
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _framebufferResized) {
             _framebufferResized = false;
             recreateSwapChain();
+            recreateImGuiWindow();
         } else if (result != VK_SUCCESS) {
             throw std::runtime_error("failed to present swap chain image!");
         }
@@ -1088,10 +1243,15 @@ private:
 };
 
 int main() {
+    
     HelloTriangleApplication app;
 
     try {
         app.run();
+        
+        
+        
+        
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;

@@ -10,7 +10,7 @@
 #include "VulkanHeaders.h"
 
 struct CommandBuffer {
-    VkCommandBuffer mCommandBuffer = VK_NULL_HANDLE;
+    VkCommandBuffer mCommandBuffer = VK_NULL_HANDLE;//TODO:move to private
     
 public:
     const VkCommandBuffer &GetCommandBuffer() const { return mCommandBuffer; }
